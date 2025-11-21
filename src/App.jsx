@@ -1,7 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import Navbar from "./components/Navbar";
+import { useEffect, useState } from "react";
 
 import Chat from "./pages/Chat";
 import ChatSession from "./pages/ChatSession";
@@ -13,15 +14,53 @@ import History from "./pages/History";
 import "./App.css";
 
 // ----------------------
-// 🔐 Protect normal pages
+// 🔐 Enhanced Protected Route with Loading State
 // ----------------------
 function ProtectedRoute({ children }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  const location = useLocation();
 
-  // If user not loaded yet, show nothing (prevents redirect flicker)
-  if (user === undefined) return null;
+  // Show loading spinner while checking auth
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="jarvis-loading">
+          <div className="loading-spinner"></div>
+          <p className="text-cyan-400 mt-4 font-mono">Authenticating...</p>
+        </div>
+      </div>
+    );
+  }
 
-  if (!user) return <Navigate to="/login" replace />;
+  // Redirect to login if not authenticated, preserving intended destination
+  if (!user) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  return children;
+}
+
+// ----------------------
+// 🔄 Public Route (redirect to chat if already logged in)
+// ----------------------
+function PublicRoute({ children }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="jarvis-loading">
+          <div className="loading-spinner"></div>
+          <p className="text-cyan-400 mt-4 font-mono">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If user is already logged in, redirect to chat
+  if (user) {
+    return <Navigate to="/chat" replace />;
+  }
 
   return children;
 }
@@ -87,7 +126,8 @@ export default function App() {
           
           {/* 🎯 Main Content */}
           <div className="relative z-10">
-            <Navbar />
+            {/* Conditionally render Navbar - only show when user is authenticated */}
+            <NavbarWrapper />
             
             <Toaster 
               position="top-right" 
@@ -122,13 +162,15 @@ export default function App() {
 
             <main className="jarvis-container">
               <Routes>
-                {/* 🔐 LOGIN PAGE */}
+                {/* 🔐 LOGIN PAGE - Public route */}
                 <Route 
                   path="/login" 
                   element={
-                    <div className="animate-fadeIn">
-                      <Login />
-                    </div>
+                    <PublicRoute>
+                      <div className="animate-fadeIn">
+                        <Login />
+                      </div>
+                    </PublicRoute>
                   } 
                 />
 
@@ -192,13 +234,21 @@ export default function App() {
                   }
                 />
 
-                {/* 🎯 REDIRECT TO HISTORY */}
+                {/* 🎯 REDIRECT ROOT TO LOGIN */}
+                <Route 
+                  path="/" 
+                  element={
+                    <PublicRoute>
+                      <Navigate to="/login" replace />
+                    </PublicRoute>
+                  } 
+                />
+
+                {/* 🎯 CATCH ALL - REDIRECT TO LOGIN */}
                 <Route 
                   path="*" 
                   element={
-                    <div className="animate-fadeIn">
-                      <Navigate to="/login" replace />
-                    </div>
+                    <Navigate to="/login" replace />
                   } 
                 />
               </Routes>
@@ -208,4 +258,19 @@ export default function App() {
       </AuthProvider>
     </BrowserRouter>
   );
+}
+
+// -------------------------------
+// 🧭 Navbar Wrapper (only show when authenticated)
+// -------------------------------
+function NavbarWrapper() {
+  const { user } = useAuth();
+  const location = useLocation();
+
+  // Don't show navbar on login page
+  if (!user || location.pathname === '/login') {
+    return null;
+  }
+
+  return <Navbar />;
 }

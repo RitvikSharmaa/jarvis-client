@@ -4,7 +4,13 @@ import { useState, useEffect } from "react";
 import SatisfactionButtons from "./SatisfactionButtons";
 import FeedbackButtons from "./FeedbackButtons";
 
-export default function ChatMessage({ message, onSatisfaction, chatLocked }) {
+export default function ChatMessage({ 
+  message, 
+  onSatisfaction, 
+  chatLocked, 
+  showFeedback = false,
+  isLatestAiMessage = false // Add this new prop
+}) {
   // Add safe defaults for message
   const safeMessage = message || {};
   const safeContent = safeMessage.content || "";
@@ -21,13 +27,15 @@ export default function ChatMessage({ message, onSatisfaction, chatLocked }) {
     safeContent.toLowerCase().includes("successfully and the chat");
 
   // Conditions to show satisfaction buttons:
+  // ONLY show on the latest AI message AND not closing message
   const showSatisfaction =
     !isUser &&           // Only AI messages
     !chatLocked &&       // Hide when chat closed
-    !isClosingMessage;   // Hide for "chat closed" messages
+    !isClosingMessage && // Hide for "chat closed" messages
+    isLatestAiMessage;   // ONLY show on latest AI message
 
   // Conditions to show feedback buttons (thumbs up/down):
-  const showFeedback =
+  const showFeedbackButtons = showFeedback && 
     !isUser &&           // Only AI messages
     !chatLocked &&       // Hide when chat closed
     !isClosingMessage && // Hide for "chat closed" messages
@@ -175,7 +183,7 @@ export default function ChatMessage({ message, onSatisfaction, chatLocked }) {
 
           {/* Action Buttons Container */}
           <AnimatePresence>
-            {(showSatisfaction || showFeedback) && !isTyping && (
+            {(showSatisfaction || showFeedbackButtons) && !isTyping && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
@@ -183,7 +191,7 @@ export default function ChatMessage({ message, onSatisfaction, chatLocked }) {
                 className={`flex justify-end gap-2 ${isUser ? "pr-12" : "pr-0"}`}
               >
                 {/* Feedback buttons (thumbs up/down) */}
-                {showFeedback && (
+                {showFeedbackButtons && (
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
@@ -193,7 +201,7 @@ export default function ChatMessage({ message, onSatisfaction, chatLocked }) {
                   </motion.div>
                 )}
 
-                {/* Satisfaction buttons (Yes/No) */}
+                {/* Satisfaction buttons (Yes/No) - ONLY on latest AI message */}
                 {showSatisfaction && (
                   <motion.div
                     initial={{ scale: 0 }}
@@ -217,7 +225,7 @@ export default function ChatMessage({ message, onSatisfaction, chatLocked }) {
                 className={`text-xs opacity-60 font-mono tracking-wide ${isUser ? "text-right pr-12" : "text-left pl-12"}`}
               >
                 <span className="text-cyan-400/80">
-                  {isUser ? "USER" : "JARVIS_AI"} • {new Date().toLocaleTimeString([], { 
+                  {isUser ? "USER" : "JARVIS_AI"} • {new Date(safeMessage.created_at || Date.now()).toLocaleTimeString([], { 
                     hour: '2-digit', 
                     minute: '2-digit',
                     hour12: false 

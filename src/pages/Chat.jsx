@@ -12,22 +12,21 @@ import { supabase } from "../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  Brain, 
   MessageSquare, 
   Sparkles, 
-  Zap, 
   Orbit,
   Satellite,
-  Cpu,
-  Binary
+  Binary,
+  Clock,
+  RefreshCw
 } from "lucide-react";
 
 export default function Chat() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, updateActivity } = useAuth();
   const { messages, setMessages, addMessage } = useChatStore();
 
-  const [chatId, setChatId] = useState(localStorage.getItem("chat_id") || null);
+  const [chatId, setChatId] = useState(null);
   const [aiMessageCount, setAiMessageCount] = useState(0);
   const [showAutoTicketPrompt, setShowAutoTicketPrompt] = useState(false);
   const [showTicketPrompt, setShowTicketPrompt] = useState(false);
@@ -35,32 +34,71 @@ export default function Chat() {
   const [surveyVisible, setSurveyVisible] = useState(false);
   const [waitingForAI, setWaitingForAI] = useState(false);
   const [preventAutoCreation, setPreventAutoCreation] = useState(false);
-  const [hologramActive, setHologramActive] = useState(true);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
-  // Hologram animation interval
+  // 🔥 Initialize chat with session timeout check
   useEffect(() => {
-    const interval = setInterval(() => {
-      setHologramActive(prev => !prev);
-    }, 3000);
-    return () => clearInterval(interval);
+    console.log("🔍 CHAT COMPONENT MOUNTED");
+    
+    const initializeChat = async () => {
+      const storedChatId = localStorage.getItem("chat_id");
+      const lastActivity = localStorage.getItem("lastActivity");
+      
+      // Check if session expired (10 minutes = 600000 ms)
+      if (lastActivity && Date.now() - parseInt(lastActivity) > 600000) {
+        console.log("🕒 Session expired - starting new chat");
+        setSessionExpired(true);
+        
+        // Close the expired chat
+        if (storedChatId) {
+          await closeChat(storedChatId);
+        }
+        
+        setChatId(null);
+        setPreventAutoCreation(true);
+      } else {
+        // Session is still valid, continue with existing chat
+        if (storedChatId) {
+          console.log("🔄 Continuing existing chat:", storedChatId);
+          setChatId(storedChatId);
+          await checkChatValidity(storedChatId);
+        } else {
+          console.log("🆕 No existing chat found");
+          setPreventAutoCreation(true);
+        }
+        
+        // Update activity timestamp
+        updateActivity();
+      }
+    };
+
+    initializeChat();
   }, []);
 
-  // 🔥 DEBUG: Track component mounting and chat creation
-  // 🔥 DEBUG: Track component mounting and chat creation
-useEffect(() => {
-  console.log("🔍 CHAT COMPONENT MOUNTED");
-  console.log("🔍 Current chatId:", chatId);
-  console.log("🔍 localStorage chat_id:", localStorage.getItem("chat_id"));
-  
-  // 🔥 Only prevent auto-creation if coming from a completed survey
-  // not from normal chat closure
-  const surveyCompleted = sessionStorage.getItem('survey_completed');
-  if (surveyCompleted && window.location.pathname === '/chat') {
-    console.log("🚫 Preventing auto-chat creation after survey completion");
-    setPreventAutoCreation(true);
-    sessionStorage.removeItem('survey_completed');
-  }
-}, []);
+  // 🔥 Check if chat is still valid and active
+  const checkChatValidity = async (chatIdToCheck) => {
+    try {
+      const { data, error } = await supabase
+        .from("chats")
+        .select("status, created_at")
+        .eq("id", chatIdToCheck)
+        .single();
+
+      if (error || !data || data.status !== "active") {
+        console.log("❌ Chat is no longer valid - starting new one");
+        localStorage.removeItem("chat_id");
+        setChatId(null);
+        setPreventAutoCreation(true);
+        return false;
+      }
+      
+      console.log("✅ Chat is valid and active");
+      return true;
+    } catch (error) {
+      console.error("Error checking chat validity:", error);
+      return false;
+    }
+  };
 
   // Safety check useEffect
   useEffect(() => {
@@ -70,13 +108,39 @@ useEffect(() => {
     }
   }, [chatId, preventAutoCreation]);
 
+  // 🔥 Update activity on user interactions
+  useEffect(() => {
+    const updateUserActivity = () => {
+      if (user) {
+        updateActivity();
+      }
+    };
+
+    // Update activity on various user interactions
+    window.addEventListener('click', updateUserActivity);
+    window.addEventListener('keypress', updateUserActivity);
+    window.addEventListener('mousemove', updateUserActivity);
+
+    return () => {
+      window.removeEventListener('click', updateUserActivity);
+      window.removeEventListener('keypress', updateUserActivity);
+      window.removeEventListener('mousemove', updateUserActivity);
+    };
+  }, [user, updateActivity]);
+
   // ------------------------------------------------
-  // CREATE NEW CHAT (only when explicitly called)
+  // CREATE NEW CHAT (with automatic previous chat closure)
   // ------------------------------------------------
   const createNewChat = async () => {
-    console.log("🆕 CREATE NEW CHAT CALLED - Stack trace:");
-    console.trace();
+    console.log("🆕 CREATE NEW CHAT CALLED");
     
+    // 🔥 Close any existing active chat first
+    const currentChatId = localStorage.getItem("chat_id");
+    if (currentChatId) {
+      console.log("🔒 Closing previous chat before creating new one:", currentChatId);
+      await closeChat(currentChatId);
+    }
+
     const newId = crypto.randomUUID();
 
     const { error } = await supabase.from("chats").insert({
@@ -87,15 +151,44 @@ useEffect(() => {
 
     if (!error) {
       localStorage.setItem("chat_id", newId);
+      localStorage.setItem("lastActivity", Date.now().toString());
       setChatId(newId);
       setMessages([]);
       setChatLocked(false);
       setPreventAutoCreation(false);
+      setAiMessageCount(0);
+      setShowAutoTicketPrompt(false);
+      setShowTicketPrompt(false);
+      setSessionExpired(false);
+      
       toast.success("New chat started");
       return newId;
     } else {
       toast.error("Failed to start chat");
       return null;
+    }
+  };
+
+  // 🔥 Generic chat closure function
+  const closeChat = async (chatIdToClose) => {
+    if (!chatIdToClose) return;
+    
+    try {
+      const { error } = await supabase
+        .from("chats")
+        .update({ status: "closed" })
+        .eq("id", chatIdToClose);
+
+      if (error) {
+        console.error("Failed to close chat:", error);
+        return false;
+      }
+      
+      console.log("✅ Chat closed successfully:", chatIdToClose);
+      return true;
+    } catch (error) {
+      console.error("Error closing chat:", error);
+      return false;
     }
   };
 
@@ -160,36 +253,25 @@ useEffect(() => {
   // ------------------------------------------------
   // CLOSE CHAT AND UPDATE DATABASE
   // ------------------------------------------------
- // ------------------------------------------------
-// CLOSE CHAT AND UPDATE DATABASE
-// ------------------------------------------------
-const triggerChatClosed = async () => {
-  if (chatLocked) return;
-  
-  setChatLocked(true);
-  
-  if (chatId) {
-    const { error } = await supabase
-      .from("chats")
-      .update({ status: "closed" })
-      .eq("id", chatId);
+  const triggerChatClosed = async () => {
+    if (chatLocked) return;
     
-    if (error) {
-      console.error("Failed to update chat status:", error);
+    setChatLocked(true);
+    
+    if (chatId) {
+      await closeChat(chatId);
     }
-  }
-  
-  localStorage.removeItem("chat_id");
-  // 🔥 REMOVE THIS: sessionStorage.setItem('survey_completed', 'true');
-  
-  setChatId(null);
-  
-  toast.success("Chat closed ✔");
-  
-  setTimeout(() => {
-    setSurveyVisible(true);
-  }, 2000);
-};
+    
+    localStorage.removeItem("chat_id");
+    setChatId(null);
+    
+    toast.success("Chat closed ✔");
+    
+    setTimeout(() => {
+      setSurveyVisible(true);
+    }, 2000);
+  };
+
   // ------------------------------------------------
   // SEND MESSAGE
   // ------------------------------------------------
@@ -200,6 +282,9 @@ const triggerChatClosed = async () => {
       toast.error("Please click 'Start New Chat' before sending a message.");
       return;
     }
+
+    // Update activity timestamp
+    updateActivity();
 
     addMessage({
       id: crypto.randomUUID(),
@@ -286,19 +371,33 @@ const triggerChatClosed = async () => {
   // ------------------------------------------------
   // START NEW CHAT MANUALLY
   // ------------------------------------------------
-// ------------------------------------------------
-// START NEW CHAT MANUALLY
-// ------------------------------------------------
-const startNewChat = async () => {
-  console.log("🔄 Manual chat start initiated");
-  // 🔥 REMOVE: sessionStorage.removeItem('survey_completed');
-  const newId = await createNewChat();
-  if (newId) {
-    setChatLocked(false);
-    setSurveyVisible(false);
+  const startNewChat = async () => {
+    console.log("🔄 Manual chat start initiated");
+    const newId = await createNewChat();
+    if (newId) {
+      setChatLocked(false);
+      setSurveyVisible(false);
+      setPreventAutoCreation(false);
+    }
+  };
+
+  // 🔥 CONTINUE EXISTING CHAT
+  const continueExistingChat = async () => {
+    console.log("🔄 Continuing existing chat session");
+    setSessionExpired(false);
     setPreventAutoCreation(false);
-  }
-};
+    updateActivity();
+  };
+
+  // Find the latest AI message index
+  const getLatestAiMessageIndex = (messages) => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') {
+        return i;
+      }
+    }
+    return -1;
+  };
 
   // Floating particles background
   const FloatingParticles = () => (
@@ -326,7 +425,7 @@ const startNewChat = async () => {
   );
 
   return (
-    <div className="flex flex-col h-screen  relative">
+    <div className="flex flex-col h-screen relative">
       {/* Animated Background Elements */}
       <FloatingParticles />
       
@@ -335,14 +434,48 @@ const startNewChat = async () => {
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-500 to-transparent animate-pulse"></div>
       </div>
 
-      {/* Header */}
-  
-
       {/* Main Chat Area */}
       <div className="flex-1 overflow-hidden relative">
         <div className="h-full overflow-y-auto p-4">
           <AnimatePresence>
-            {!chatId && preventAutoCreation ? (
+            {/* Session Expired State */}
+            {sessionExpired ? (
+              <motion.div 
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="text-center mt-20 space-y-6"
+              >
+                <motion.div
+                  animate={{ 
+                    rotateY: 360,
+                  }}
+                  transition={{ 
+                    duration: 3,
+                    repeat: Infinity,
+                    ease: "linear"
+                  }}
+                >
+                  <Clock className="w-20 h-20 text-amber-400 mx-auto mb-4" />
+                </motion.div>
+                <h3 className="text-2xl font-bold bg-gradient-to-r from-amber-400 to-orange-400 bg-clip-text text-transparent">
+                  Session Expired
+                </h3>
+                <p className="text-amber-300/60 text-lg">Your previous chat session has expired due to inactivity.</p>
+                <div className="flex gap-4 justify-center">
+                  <motion.button
+                    onClick={startNewChat}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="bg-gradient-to-r from-cyan-500 to-blue-500 px-6 py-3 rounded-xl text-white font-semibold shadow-lg hover:shadow-cyan-500/25 transition-all duration-300"
+                  >
+                    <span className="flex items-center space-x-2">
+                      <Sparkles className="w-4 h-4" />
+                      <span>Start New Chat</span>
+                    </span>
+                  </motion.button>
+                </div>
+              </motion.div>
+            ) : !chatId && preventAutoCreation ? (
               // Completed State
               <motion.div 
                 initial={{ scale: 0.8, opacity: 0 }}
@@ -361,10 +494,9 @@ const startNewChat = async () => {
                 >
                   <Orbit className="w-20 h-20 text-cyan-400 mx-auto mb-4" />
                 </motion.div>
-             <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
-  {`Welcome ${user.name.toUpperCase()}`}
-</h3>
-
+                <h3 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
+                  {`Welcome ${user.name.toUpperCase()}`}
+                </h3>
                 <p className="text-cyan-300/60 text-lg">Mission accomplished. Ready for next deployment.</p>
                 <motion.button
                   onClick={startNewChat}
@@ -427,20 +559,27 @@ const startNewChat = async () => {
             ) : (
               <div className="space-y-4 max-w-4xl mx-auto">
                 <AnimatePresence>
-                  {messages.map((m, index) => (
-                    <motion.div
-                      key={m.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.1 }}
-                    >
-                      <ChatMessage
-                        message={m}
-                        chatLocked={chatLocked}
-                        onSatisfaction={handleSatisfaction}
-                      />
-                    </motion.div>
-                  ))}
+                  {messages.map((m, index) => {
+                    const latestAiIndex = getLatestAiMessageIndex(messages);
+                    const isLatestAiMessage = index === latestAiIndex;
+                    
+                    return (
+                      <motion.div
+                        key={m.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.1 }}
+                      >
+                        <ChatMessage
+                          message={m}
+                          chatLocked={chatLocked}
+                          onSatisfaction={handleSatisfaction}
+                          showFeedback={true}
+                          isLatestAiMessage={isLatestAiMessage}
+                        />
+                      </motion.div>
+                    );
+                  })}
                 </AnimatePresence>
               </div>
             )}

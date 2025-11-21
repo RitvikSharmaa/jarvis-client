@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, Calendar, Clock, MessageSquare } from "lucide-react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
+import FeedbackButtons from "../components/FeedbackButtons"; // Import FeedbackButtons
 
 export default function ChatSession() {
   const { id } = useParams();
@@ -191,6 +192,14 @@ export default function ChatSession() {
                     )}
                     <div className="flex-1">
                       <p className="whitespace-pre-wrap">{message.content}</p>
+                      
+                      {/* Feedback Buttons for AI Messages */}
+                      {message.role === 'assistant' && message.id && (
+                        <div className="mt-3 flex justify-end">
+                          <FeedbackButtons messageId={message.id} />
+                        </div>
+                      )}
+                      
                       <div className={`text-xs mt-2 ${
                         message.role === 'user' ? 'text-cyan-100/70' : 'text-cyan-400/60'
                       }`}>
