@@ -8,6 +8,23 @@ It supports **authenticated chat**, **RAG answers**, **ticket creation**, **feed
 This project contains the **frontend (React)** and integrates with **multiple N8N workflows** acting as the backend logic.
 
 ---
+# Project Screen Shots
+<img width="1898" height="912" alt="image" src="https://github.com/user-attachments/assets/ee612d63-ee98-4c94-bf99-4b975cb5dcbd" />
+
+<img width="1902" height="911" alt="image" src="https://github.com/user-attachments/assets/c865a0c8-ef67-4077-a86d-9fbcca6ea6cc" />
+
+<img width="1906" height="915" alt="image" src="https://github.com/user-attachments/assets/55bdc4a6-27e4-4993-8e96-bde6fe3cc5d9" />
+
+<img width="1900" height="908" alt="image" src="https://github.com/user-attachments/assets/118bfb87-08be-4ed9-98a1-9c91b074deea" />
+
+# TICKETING SYSTEM AND DATABASE MANGAEMENT
+
+<img width="1851" height="802" alt="image" src="https://github.com/user-attachments/assets/861281a3-d18e-45e4-ad1e-82d520c5bcd9" />
+
+
+
+
+
 
 ## ✨ **Core Features**
 
